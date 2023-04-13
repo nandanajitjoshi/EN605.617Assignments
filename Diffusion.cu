@@ -25,6 +25,7 @@ struct vertex {
     double delx; 
     double UValue; 
     double VValue; 
+    double PValue; 
 }; 
 
 #define U0 1
@@ -204,14 +205,14 @@ float TriDiagSolve(double* low , double* diag , double* high, double* RHS, int r
 
     /*4 - Allocate buffer space for linear solve*/
     checkCudaErrors(cusparseDgtsv2_bufferSizeExt(handle, rows, 1, 
-            low,diag, high, RHS ,rows+10 , &pBufferSize));
+            low,diag, high, RHS ,rows , &pBufferSize));   //Why rows + 10?
 
     printf ("%zu", pBufferSize);
     checkCudaErrors(cudaMalloc((void**)&pBuffer, sizeof(int)*pBufferSize));
 
     /*5 - Analyze coefficient matrix and report any singularities */
     checkCudaErrors(cusparseDgtsv2(handle, rows, 1, 
-            low,diag, high, RHS ,rows+10 , pBuffer));
+            low,diag, high, RHS ,rows , pBuffer));
 
   
 
@@ -800,6 +801,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].BType = '0';
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
+            Domain[i].PValue = 0;
 
         } else if (i== (Ny-1)){
             /*Top Right Corner*/
@@ -810,6 +812,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].BType = '0';
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
+            Domain[i].PValue = 0;
 
         } else if (i==(Ny*(Nx-1))){
             /*Bottom Left Corner*/
@@ -820,6 +823,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].BType = '0';
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
+            Domain[i].PValue = 0;
 
         } else if (i== (rows -1)){
             /*Bottom Right Corner*/
@@ -830,6 +834,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].BType = '0';
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
+            Domain[i].PValue = 0;
 
         } else if  (i < Ny){
             /*Top Edge*/
@@ -840,6 +845,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '1';
+            Domain[i].PValue = 0;
 
         } else if (i%Ny == 0){
             /*Left Edge*/
@@ -850,6 +856,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].UValue = U0;
             Domain[i].VValue = 0;
             Domain[i].BType = '0';
+            Domain[i].PValue = 0;
 
         } else if (i%Ny == (Ny-1)){
             /*Right Edge*/
@@ -860,6 +867,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '0';
+            Domain[i].PValue = 0;
 
         } else if (i >= (Ny*(Nx-1)) ){
             /*Bottom Edge*/
@@ -870,6 +878,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '1';
+            Domain[i].PValue = 0;
 
         } else {
             /*Internal Points*/
@@ -880,6 +889,7 @@ void Mesh (int Lx, int Ly, int Nx,int Ny, vertex* Domain){
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '0';
+            Domain[i].PValue = 0;
         } 
     }
 
@@ -924,6 +934,447 @@ void updateRHS(cublasHandle_t handleBlas, double* H_u_n_1, double* H_v_n_1,
     
 }
 
+__global__
+void getPCoeffs(double* P_rowPtr, double* P_colPtr, double* P_val,
+                 const vertex* Domain, int rows, int Nx, int Ny,
+                 double rho, double delT){
+
+
+    int thread_idx = blockIdx.x * blockDim.x + threadIdx.x; 
+    int start = thread_idx*5; 
+    vertex thisV = Domain[thread_idx]; 
+    double delx = thisV.delx;
+    double dely = thisV.dely; 
+    double constTerm  = 1/(rho*(delx*dely))*delT;
+
+
+    if (thread_idx < rows){
+
+        switch (thisV.VType){
+            case '0':
+                /*Interior vertices*/
+                P_colPtr[start] = thread_idx - Nx; 
+                P_colPtr[start+1] = thread_idx - 1; 
+                P_colPtr[start+2] = thread_idx ; 
+                P_colPtr[start+3] = thread_idx+1 ; 
+                P_colPtr[start+4] = thread_idx+Nx ; 
+
+
+                P_val[start] = 1; 
+                P_val[start+1] = 1; 
+                P_val[start+2] = -4 ; 
+                P_val[start+3] = 1 ; 
+                P_val[start+4] = 1 ; 
+                break;
+
+            case '1':
+                switch (thisV.BSide){
+                    case 'B' :
+                        P_colPtr[start] = thread_idx - (Ny-1)*Nx ; 
+                        P_colPtr[start+1] = thread_idx - Nx; 
+                        P_colPtr[start+2] = thread_idx - 1; 
+                        P_colPtr[start+3] = thread_idx ; 
+                        P_colPtr[start+4] = thread_idx+1 ; 
+                       
+
+                        P_val[start] = 0 ; 
+                        P_val[start+1] = 2; 
+                        P_val[start+2] = 1; 
+                        P_val[start+3] = -4 ; 
+                        P_val[start+4] = 1 ; 
+                       
+                    break;  
+
+                    case 'T' :
+                        P_colPtr[start] = thread_idx - 1; 
+                        P_colPtr[start+1] = thread_idx; 
+                        P_colPtr[start+2] = thread_idx + 1; 
+                        P_colPtr[start+3] = thread_idx + Nx; 
+                        P_colPtr[start+4] = thread_idx+Nx*(Ny-1) ; 
+                       
+
+                        P_val[start] = 1 ; 
+                        P_val[start+1] = -4; 
+                        P_val[start+2] = 1; 
+                        P_val[start+3] = 2 ; 
+                        P_val[start+4] = 0 ; 
+                       
+                    break;
+
+                    case 'L' :
+                        P_colPtr[start] = thread_idx - Nx; 
+                        P_colPtr[start+1] = thread_idx; 
+                        P_colPtr[start+2] = thread_idx + 1; 
+                        P_colPtr[start+3] = thread_idx + Nx-1; 
+                        P_colPtr[start+4] = thread_idx+Nx ; 
+                       
+
+                        P_val[start] = 1 ; 
+                        P_val[start+1] = -4; 
+                        P_val[start+2] = 2; 
+                        P_val[start+3] = 0 ; 
+                        P_val[start+4] = 1 ; 
+                       
+                    break;
+
+                    case 'R' :
+                        P_colPtr[start] = thread_idx - Nx; 
+                        P_colPtr[start+1] = thread_idx-Nx+1; 
+                        P_colPtr[start+2] = thread_idx - 1; 
+                        P_colPtr[start+3] = thread_idx ; 
+                        P_colPtr[start+4] = thread_idx+Nx; 
+                       
+
+                        P_val[start] = 1 ; 
+                        P_val[start+1] = 0; 
+                        P_val[start+2] = 2; 
+                        P_val[start+3] = -4 ; 
+                        P_val[start+4] = 1 ; 
+                       
+                    break;
+
+                }
+
+            case '2':
+                switch (thisV.BSide){       
+                    case 'W':
+                    /*Top left*/
+
+                    P_colPtr[start] = thread_idx; 
+                    P_colPtr[start+1] = thread_idx+1; 
+                    P_colPtr[start+2] = thread_idx+Nx-1; 
+                    P_colPtr[start+3] = thread_idx + Nx ; 
+                    P_colPtr[start+4] = thread_idx+Nx*(Ny-1); 
+
+
+                    P_val[start] = -4 ; 
+                    P_val[start+1] = 2; 
+                    P_val[start+2] = 0; 
+                    P_val[start+3] = 2 ; 
+                    P_val[start+4] = 0 ; 
+                    break;
+
+                    case 'D':
+                    /*Top right*/
+                    P_colPtr[start] = thread_idx-Nx+1; 
+                    P_colPtr[start+1] = thread_idx-1; 
+                    P_colPtr[start+2] = thread_idx; 
+                    P_colPtr[start+3] = thread_idx + Nx ; 
+                    P_colPtr[start+4] = thread_idx+Nx*(Ny-1); 
+
+
+                    P_val[start] = 0 ; 
+                    P_val[start+1] = 2; 
+                    P_val[start+2] = -4; 
+                    P_val[start+3] = 2 ; 
+                    P_val[start+4] = 0 ; 
+                    break; 
+
+                    case 'Z':
+                    /*Bottom left*/
+
+                    P_colPtr[start] = thread_idx-Nx*(Ny-1); 
+                    P_colPtr[start+1] = thread_idx-Nx; 
+                    P_colPtr[start+2] = thread_idx; 
+                    P_colPtr[start+3] = thread_idx + 1 ; 
+                    P_colPtr[start+4] = thread_idx+Nx-1; 
+
+
+                    P_val[start] = 0 ; 
+                    P_val[start+1] = 2; 
+                    P_val[start+2] = -4; 
+                    P_val[start+3] = 2 ; 
+                    P_val[start+4] = 0 ; 
+                    break;
+                    case 'X':
+                    /*Bottom Right*/
+
+                    P_colPtr[start] = thread_idx-(Ny-1)*Nx; 
+                    P_colPtr[start+1] = thread_idx-Nx; 
+                    P_colPtr[start+2] = thread_idx-Nx+1; 
+                    P_colPtr[start+3] = thread_idx -1 ; 
+                    P_colPtr[start+4] = thread_idx; 
+
+
+                    P_val[start] = 0 ; 
+                    P_val[start+1] = 2; 
+                    P_val[start+2] = 0; 
+                    P_val[start+3] = 2 ; 
+                    P_val[start+4] = -4 ; 
+                    break; 
+                }
+
+        }
+
+        P_rowPtr[thread_idx + 1] = 5*thread_idx + 4;
+    }
+
+}
+
+__global__
+void update_PRHS(double* P_RHS, double* U, double* V,
+                 const vertex* Domain, int rows, int Nx, int Ny,
+                 double rho){
+
+
+
+    int thread_idx = blockIdx.x * blockDim.x + threadIdx.x; 
+    vertex thisV = Domain[thread_idx]; 
+    double delx = thisV.delx;
+    double dely = thisV.dely; 
+
+    double rightV, leftV, topV, btmV; 
+
+
+    if (thread_idx < rows){
+
+        switch (thisV.VType){
+            case '0':
+                /*Interior vertices*/
+            rightV = U[thread_idx+1];
+            leftV = U[thread_idx-1];
+            topV = V[thread_idx-Nx]; //Note that V vertex has been rotated in row-major direction
+            btmV = V[thread_idx+Nx];
+
+            P_RHS[thread_idx] = (rightV - leftV)/(2*delx) + (topV - btmV)/(2*dely);
+            break;
+
+            case '1':
+                switch (thisV.BSide){
+                    case 'B' :
+                        rightV = U[thread_idx+1];
+                        leftV = U[thread_idx-1];
+
+                        if ((thisV.BType == '0') || (thisV.BType == '2')){
+                        /*Dirichlet Condition*/
+                        topV = V[thread_idx-Nx];                       
+                        btmV =  2*thisV.VValue - topV;   
+                    } else {
+                        topV = 0;                       
+                        btmV =  0;  
+                    }
+
+                    P_RHS[thread_idx] = (rightV - leftV)/(2*delx) + (topV - btmV)/(4*dely);                       
+                    break;  
+
+                    case 'T' :
+                        /*Top Boundary*/
+                        rightV = U[thread_idx+1];
+                        leftV = U[thread_idx-1];
+
+                        if ((thisV.BType == '0') || (thisV.BType == '2')){
+                        /*Dirichlet Condition*/
+                        btmV = V[thread_idx+Nx];                       
+                        topV =  2*thisV.VValue - btmV; 
+                        } else {
+                        topV = 0;                       
+                        btmV =  0;  
+                    }
+
+                    P_RHS[thread_idx] = (rightV - leftV)/(2*delx) + (topV - btmV)/(4*dely);                       
+                    break;  
+
+                    case 'L' :
+
+                        topV = V[thread_idx-Nx];
+                        btmV = V[thread_idx + Nx]; 
+
+                        if ((thisV.BType == '0') || (thisV.BType == '2')){
+                        /*Dirichlet Condition*/
+                        rightV = U[thread_idx+1];                       
+                        leftV =  2*thisV.UValue - rightV; 
+                        } else {
+                        rightV = 0;                       
+                        leftV =  0;  
+                        }
+                    
+                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(2*dely);                       
+                    break;  
+
+                    case 'R' :
+                        topV = V[thread_idx-Nx];
+                        btmV = V[thread_idx + Nx]; 
+
+                        if ((thisV.BType == '0') || (thisV.BType == '2')){
+                        /*Dirichlet Condition*/
+                        leftV = U[thread_idx-1];                       
+                        rightV =  2*thisV.UValue - leftV; 
+                        } else {
+                        rightV = 0;                       
+                        leftV =  0;  
+                        }
+                    
+                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(2*dely);    
+                       
+                    break;
+
+                }
+
+            case '2':
+                switch (thisV.BSide){       
+                    case 'W':
+                    /*Top left*/
+
+                    btmV = V[thread_idx + Nx]; 
+                    rightV = U[thread_idx + 1]; 
+                    topV = 2*thisV.VValue -  btmV; 
+                    leftV = 2*thisV.UValue -  rightV; 
+
+                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
+                    break;
+
+                    case 'D':
+                    /*Top right*/
+                    btmV = V[thread_idx + Nx]; 
+                    leftV = U[thread_idx - 1]; 
+                    topV = 2*thisV.VValue - btmV; 
+                    rightV = 2*thisV.UValue -  leftV; 
+
+                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
+                    break;
+
+                    case 'Z':
+                    /*Bottom left*/
+
+                    topV = V[thread_idx - Nx]; 
+                    rightV = U[thread_idx + 1]; 
+                    btmV = 2*thisV.VValue -  topV; 
+                    leftV = 2*thisV.UValue -  rightV; 
+
+                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
+                    break;
+
+                    case 'X':
+                    /*Bottom Right*/
+
+                    topV = V[thread_idx - Nx]; 
+                    leftV = U[thread_idx - 1]; 
+                    btmV = 2*thisV.VValue -  topV; 
+                    rightV = 2*thisV.UValue - leftV; 
+
+                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
+                    break;
+ 
+                    break; 
+                }
+
+        }
+
+    }
+
+}
+
+__global__
+void velPressureCorrection (double*P, double* U, double* V,const vertex* Domain, 
+        int rows, int Nx, int Ny,double rho, double delT ){
+
+    int thread_idx = blockIdx.x * blockDim.x + threadIdx.x; 
+    vertex thisV = Domain[thread_idx]; 
+    double delx = thisV.delx;
+    double dely = thisV.dely; 
+    double constTerm = delT/rho *delx*dely; 
+
+    double right, left, top, btm; 
+
+    if (thread_idx < rows){
+
+        switch (thisV.VType){
+            case '0':
+            /*Interior Vertex*/
+            right = P[thread_idx + 1];
+            left = P[thread_idx - 1];
+            top = P[thread_idx - Nx];
+            btm = P[thread_idx + Nx];
+
+            U[thread_idx] = U[thread_idx] - ( right - left)/(2*delx)*constTerm;
+            V[thread_idx] = V[thread_idx] - (top-btm)/(2*dely)*constTerm;
+            break; 
+
+            case '1':
+            /*Edge*/
+            switch (thisV.BSide){
+
+                case 'T':
+                    /*Top Edge*/
+                    right = P[thread_idx + 1];
+                    left = P[thread_idx - 1];
+
+                    if((thisV.VType == '0')||(thisV.VType == '1')){
+                        top = 0;
+                        btm = 0;
+                    } else{
+                        top = P[thread_idx-Nx];                       
+                        btm =  2*thisV.PValue - top; 
+                    }
+
+                    U[thread_idx] = U[thread_idx] - ( right - left)/(2*delx)*constTerm;
+                    V[thread_idx] = V[thread_idx] - (top-btm)/(4*dely)*constTerm;
+                    break; 
+
+                case 'B':
+                    /*Btm Edge*/
+                    right = P[thread_idx + 1];
+                    left = P[thread_idx - 1];
+
+                    if((thisV.VType == '0')||(thisV.VType == '1')){
+                        top = 0;
+                        btm = 0;
+                    } else{
+                        btm = P[thread_idx+Nx];                       
+                        top =  2*thisV.PValue - btm; 
+                    }
+
+                    U[thread_idx] = U[thread_idx] - ( right - left)/(2*delx)*constTerm;
+                    V[thread_idx] = V[thread_idx] - (top-btm)/(4*dely)*constTerm;
+                    break;
+
+                case 'R':
+                    /*Right Edge*/
+                    top = P[thread_idx - Nx];
+                    btm = P[thread_idx + Nx];
+
+                    if((thisV.VType == '0')||(thisV.VType == '1')){
+                        right = 0;
+                        left = 0;
+                    } else{
+                        left = P[thread_idx-1];                       
+                        right =  2*thisV.PValue - left; 
+                    } 
+
+                    U[thread_idx] = U[thread_idx] - ( right - left)/(4*delx)*constTerm;
+                    V[thread_idx] = V[thread_idx] - (top-btm)/(2*dely)*constTerm;
+                    break;
+
+                case 'L':
+                    /*Left Edge*/
+                    top = P[thread_idx - Nx];
+                    btm = P[thread_idx + Nx];
+
+                    if((thisV.VType == '0')||(thisV.VType == '1')){
+                        right = 0;
+                        left = 0;
+                    } else{
+                        right = P[thread_idx+1];                       
+                        right =  2*thisV.PValue - right; 
+                    } 
+
+                    U[thread_idx] = U[thread_idx] - ( right - left)/(4*delx)*constTerm;
+                    V[thread_idx] = V[thread_idx] - (top-btm)/(2*dely)*constTerm;
+                    break;
+            }
+
+
+            break; 
+
+            case '2':
+                U[thread_idx] = U[thread_idx] ;
+                V[thread_idx] = V[thread_idx] ;
+                break; 
+
+        }
+    }
+}
+
 void Solve (int Lx, int Ly, int Nx,int Ny){
 
     int rows  = Ny*Nx; 
@@ -934,13 +1385,16 @@ void Solve (int Lx, int Ly, int Nx,int Ny){
     double* U, *V, *P; 
     double* H_u_n_1, *H_v_n_1, *H_u_n, *H_v_n; 
     double* D_u_n, *D_v_n;
-    double* RHS_u_n, *RHS_v_n;  
+    double* RHS_u_n, *RHS_v_n;
+    double *P_rowPtr, *P_colPtr, *P_val, *P_RHS; 
+  
 
     double* I = (double *)malloc(sizeof(double)*(rows));
     double *J = (double *)malloc(sizeof(double)*rows);
     double *val_host = (double *)malloc(sizeof(double) * rows );
     double *RHS = (double *)malloc(sizeof(double) * rows);
     double *Soln = (double *)malloc(sizeof(double) * rows);
+    double*temp = (double *)malloc(sizeof(double) * 5*rows);
 
     double mu = 1;
     double rho = 1;
@@ -978,10 +1432,41 @@ void Solve (int Lx, int Ly, int Nx,int Ny){
     checkCudaErrors(cudaMalloc((double **)&RHS_u_n, rows *sizeof(double)));
     checkCudaErrors(cudaMalloc((double **)&RHS_v_n, rows *sizeof(double)));
 
+    checkCudaErrors(cudaMalloc((double **)&P_rowPtr, (rows+1) *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&P_colPtr, 5*rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&P_val, 5*rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&P_RHS, 5*rows *sizeof(double)));
+
+
+
+
     int blockWidth = 128;
     int nBlocks = rows/blockWidth + 1; 
 
     Mesh <<<nBlocks,blockWidth>>> (Lx,Ly,Ny,Nx, Domain);
+    
+    getPCoeffs<<<nBlocks,blockWidth>>>(P_rowPtr, P_colPtr, P_val,
+             Domain,  rows, Nx, Ny, rho, delT);
+
+    checkCudaErrors (cudaMemcpy( temp, P_colPtr,5*(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Col Pointer\n");
+    for (int i = 0; i < 5*rows; i++){
+
+        printf("%f\n", temp[i]);
+    }
+
+    checkCudaErrors (cudaMemcpy( temp, P_val,5*(rows)*sizeof(double), 
+    cudaMemcpyDeviceToHost));
+
+    printf ("\n Val Pointer\n");
+    for (int i = 0; i < 5*rows; i++){
+
+        printf("%f\n", temp[i]);
+    }
+
+
 
     genXCoeffs <<<nBlocks,blockWidth>>> (Ulow,Uhigh,Udiag,Domain, rows, mu, rho, delT); 
     genYCoeffs <<<nBlocks,blockWidth>>> (Vlow,Vhigh,Vdiag,Domain, rows, mu, rho, delT); 
@@ -1100,14 +1585,14 @@ void Solve (int Lx, int Ly, int Nx,int Ny){
 
     printOutput (I, J, val_host, RHS,Soln, rows);
 
-    XtoY<<<nBlocks, blockWidth>>> ( RHS_u_n, Ny, Nx, U);
+    XtoY<<<nBlocks, blockWidth>>> ( RHS_v_n, Ny, Nx, V);
 
-    checkCudaErrors (cudaMemcpy( RHS, U,(rows)*sizeof(double), 
+    checkCudaErrors (cudaMemcpy( RHS, V,(rows)*sizeof(double), 
         cudaMemcpyDeviceToHost));
     
     /*Need th re-center the coefficient matrices as well*/
 
-    TriDiagSolve(Vlow , Vdiag, Vhigh, U, rows);
+    TriDiagSolve(Vlow , Vdiag, Vhigh, V, rows);
 
     checkCudaErrors (cudaMemcpy(J, Vhigh,  rows *sizeof(double), 
             cudaMemcpyDeviceToHost ));
@@ -1120,30 +1605,32 @@ void Solve (int Lx, int Ly, int Nx,int Ny){
 
     printOutput (I, J, val_host, RHS,Soln, rows);
 
-    /
-    YtoX<<<nBlocks, blockWidth>>> ( U, Ny, Nx, RHS_u_n);
+    
+    YtoX<<<nBlocks, blockWidth>>> ( V, Ny, Nx, RHS_v_n);
 
-    checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_u_n, 1, U, 1));
+    checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_v_n, 1, V, 1));
 
-    checkCudaErrors (cudaMemcpy( RHS, U,(rows)*sizeof(double), 
+    checkCudaErrors (cudaMemcpy( RHS, V,(rows)*sizeof(double), 
             cudaMemcpyDeviceToHost));
 
-    printf ("\n Final U\n");
+    printf ("\n Final V\n");
     for (int i = 0; i < rows; i++){
 
         printf("%f\n", RHS[i]);
     }
 
 
+    update_PRHS <<<nBlocks, blockWidth>>> ( P_RHS, U, V, Domain, rows, Nx, Ny,
+                 rho); 
 
-    checkCudaErrors (cudaMemcpy( RHS, RHS_v_n,(rows)*sizeof(double), 
-            cudaMemcpyDeviceToHost));
+    // checkCudaErrors (cudaMemcpy( RHS, RHS_v_n,(rows)*sizeof(double), 
+    //         cudaMemcpyDeviceToHost));
 
-    printf ("\nInitial Mesh\n");
-    for (int i = 0; i < rows; i++){
+    // printf ("\nInitial Mesh\n");
+    // for (int i = 0; i < rows; i++){
 
-        printf("%f\n", RHS[i]);
-    }
+    //     printf("%f\n", RHS[i]);
+    // }
 
 
     // printOutput (I,J,val_host, RHS, Soln, rows);
@@ -1160,6 +1647,16 @@ void Solve (int Lx, int Ly, int Nx,int Ny){
     //         cudaMemcpyDeviceToHost));
 
     // printOutput (I,J,val_host, RHS, Soln, rows);
+
+    checkCudaErrors (cudaMemcpy( RHS, P_RHS,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Final P RHS\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
 
 }
 
