@@ -230,7 +230,7 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
         alph = -1;
         bet = 0;
    
-        printf ("Entered here");
+        // printf ("Entered here");
 
         checkCudaErrors(cusparseDbsrmv(handle, dir_coeff, trans_coeff, mb, nb, nnzb, &alph,
                                       descr_coeff,valBSR, rowBSR, colBSR, dimBlock,X, 
@@ -243,12 +243,12 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
 
         checkCudaErrors (cudaMemcpy(Y, R,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-        printf ("\n R matrix:\n");
-        for (int i = 0; i < vecSize; i++){
+        // printf ("\n R matrix:\n");
+        // for (int i = 0; i < vecSize; i++){
             
-            printf ("%f\n", Y[i]);       
+        //     printf ("%f\n", Y[i]);       
 
-        }
+        // }
 
     
 
@@ -267,7 +267,8 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
         rhop = rho; 
         //Step 5.1 : Dot product (rw,r)
         checkCudaErrors(cublasDdot ( handleBlas, vecSize, rw, 1, R, 1, &rho));
-        printf ("\n Dot Product %f \n", rho);
+        // printf ("\n Dot Product %f \n", rho);
+        printf("Iteration %d \n",i);
 
         if (i > 0){
             //5.2: \beta = (\rho_{i} / \rho_{i-1}) ( \alpha / \omega )
@@ -296,12 +297,12 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
 
             checkCudaErrors (cudaMemcpy(Y, p,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-            printf ("\n Updated P  matrix:\n");
-            for (int i = 0; i < vecSize; i++){
+            // printf ("\n Updated P  matrix:\n");
+            // for (int i = 0; i < vecSize; i++){
             
-                printf ("%f\n", Y[i]);       
+            //     printf ("%f\n", Y[i]);       
 
-            }
+            // }
         }
             
             //Step 5.4 : v = A*p
@@ -312,24 +313,24 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
 
             checkCudaErrors (cudaMemcpy(Y, V,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-            printf ("\n V matrix:\n");
-            for (int i = 0; i < vecSize; i++){
+            // printf ("\n V matrix:\n");
+            // for (int i = 0; i < vecSize; i++){
                 
-                printf ("%f\n", Y[i]);       
+            //     printf ("%f\n", Y[i]);       
 
-            }
+            // }
 
             //Step 5.5 : alpha = rho_i/(r_tilde * v_i)
 
             // alpha = (r_tilde * v_i)
             checkCudaErrors(cublasDdot ( handleBlas, vecSize, rw, 1, V, 1, &alpha));
 
-            printf ("\n Alpha %f \n", alpha);
+            // printf ("\n Alpha %f \n", alpha);
 
             //alpha = rho/alpha
             alpha = rho/alpha; 
 
-            printf ("\n Alpha 2 %f \n", alpha);
+            // printf ("\n Alpha 2 %f \n", alpha);
 
             /*Step 5.6/ s = r - \alpha * v */
             alpha = -alpha; 
@@ -338,12 +339,12 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
 
             checkCudaErrors (cudaMemcpy(Y, R,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-            printf ("\n Updated R matrix:\n");
-            for (int i = 0; i < vecSize; i++){
+            // printf ("\n Updated R matrix:\n");
+            // for (int i = 0; i < vecSize; i++){
                 
-                printf ("%f\n", Y[i]);       
+            //     printf ("%f\n", Y[i]);       
 
-            }
+            // }
 
             //Reset alpha
             alpha = -alpha; 
@@ -368,20 +369,20 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
 
         checkCudaErrors (cudaMemcpy(Y, T,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-        printf ("\n Updated T matrix:\n");
-        for (int i = 0; i < vecSize; i++){
+        // printf ("\n Updated T matrix:\n");
+        // for (int i = 0; i < vecSize; i++){
             
-            printf ("%f\n", Y[i]);       
+        //     printf ("%f\n", Y[i]);       
 
-        }
+        // }
 
         /*Step 5.10 omega = (T.T)/(T.R)*/
         checkCudaErrors(cublasDdot ( handleBlas, vecSize, T, 1, T, 1, &temp));  //Changed from row*cols to vecSize
         checkCudaErrors(cublasDdot ( handleBlas, vecSize, R, 1, T, 1, &omega));  //Changed from row*cols to vecSize
 
-        printf ("\n Omega %f \n", omega);
+        // printf ("\n Omega %f \n", omega);
         omega = omega/temp; 
-        printf ("\n Omega 2%f \n", omega);
+        // printf ("\n Omega 2%f \n", omega);
 
         //Step 5.11 *x = h + omega *s*/  
 
@@ -399,15 +400,17 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
 
         checkCudaErrors (cudaMemcpy(Y, R,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-        printf ("\n Updated Final Residual matrix:\n");
-        for (int i = 0; i < vecSize; i++){
+        // printf ("\n Updated Final Residual matrix:\n");
+        // for (int i = 0; i < vecSize; i++){
             
-            printf ("%f\n", Y[i]);       
+        //     printf ("%f\n", Y[i]);       
 
-        }
+        // }
 
         /*Step 5.12 Check residual of R*/
         checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), R, 1, &residual2));
+
+         printf ("\n Residual %f \n", residual2/residual1);
 
         if (residual2/residual1 < 1E-3){
             break;
@@ -478,8 +481,8 @@ void LinearSolve( int* rowPtr, int* colPtr, double* val,
     pBuffer =  getBSRDims(handle, rowPtr, colPtr, val, row_BSR, &nnzb,
                     rows, dimBlock); 
 
-    printf("%d\n",nnzb);
-    printf("%d\n", nz);
+    // printf("%d\n",nnzb);
+    // printf("%d\n", nz);
 
 
     checkCudaErrors(cudaMalloc((void**)&col_BSR, sizeof(int)*(nnzb)));
@@ -494,12 +497,12 @@ void LinearSolve( int* rowPtr, int* colPtr, double* val,
 
     checkCudaErrors (cudaMemcpy(host, d_X,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
-    printf ("\n R matrix:\n");
-    for (int i = 0; i < vecSize; i++){
+    // printf ("\n R matrix:\n");
+    // for (int i = 0; i < vecSize; i++){
             
-        printf ("%f\n", host[i]);       
+    //     printf ("%f\n", host[i]);       
 
-    }
+    // }
 
 
 
