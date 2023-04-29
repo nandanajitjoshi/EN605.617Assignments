@@ -1,0 +1,12 @@
+CalcH is working fine
+
+Check if coefficient of 1/2 is correct (-3/2...)
+Check if val is correct
+
+
+
+1] Check CalcD calculation
+2] Check X/Y coeffs
+3] Need to check P RHS again
+
+

@@ -259,7 +259,7 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
     checkCudaErrors(cublasDcopy(handleBlas,(vecSize), R, 1, p, 1));
     checkCudaErrors(cublasDcopy(handleBlas, (vecSize), R, 1, rw,1));
     checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), R, 1, &residual1));  //Changed from row*cols to vecSize
-    printf (" Residual %f \n", residual1);
+    //printf (" Residual %f \n", residual1);
 
 
     //3: repeat until convergence (based on max. it. and relative residual)
@@ -268,7 +268,7 @@ void BCGSolve(double* X, double* RHS, int* rowBSR, int* colBSR, double*valBSR,
         //Step 5.1 : Dot product (rw,r)
         checkCudaErrors(cublasDdot ( handleBlas, vecSize, rw, 1, R, 1, &rho));
         // printf ("\n Dot Product %f \n", rho);
-        printf("Iteration %d \n",i);
+        //printf("Iteration %d \n",i);
 
         if (i > 0){
             //5.2: \beta = (\rho_{i} / \rho_{i-1}) ( \alpha / \omega )

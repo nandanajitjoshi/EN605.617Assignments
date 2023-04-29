@@ -15,7 +15,6 @@
 // Utilities and system includes
 #include "helper_functions.h"  // helper for shared functions common to CUDA Samples
 #include "helper_cuda.h"       // helper function CUDA error checking and initialization
-
 /*Initialize CSR*/
 
 void genTridiag(int *I, int *J, double*val, int M, int N)
@@ -177,7 +176,7 @@ int main(){
     int bufferSize;
     void *pBuffer;
     int nnzb = 0; 
-    int maxit = 8;
+    int maxit = 10;
 
     int *rowHostBSR, *colHostBSR;
     double *valHostBSR = NULL; 
@@ -212,10 +211,38 @@ int main(){
         X[i] = 1.0;
     }
 
-    for (int i = 0; i < vecSize; i++){
+    for (int i = rows*cols; i < vecSize; i++){
         Y[i] = 0.0;
     }
 
+    // printf ("Matrx original \n");
+
+    // for (int i = 0; i < nz; i++){
+    //     printf ("%f\t", val_host[i]);
+    //     if (((i+1)%5)==0){
+    //         printf("\n");
+    //     }   
+    // }
+
+
+    
+    // printf ("\n Columns:\n");
+
+    // for (int i = 0; i < nz; i++){
+
+    //     printf ("%d\t", col_host[i]);
+    //     if (((i+1)%5)==0){
+    //             printf("\n");
+    //     }   
+    //     }
+
+    // printf ("\n Rows:\n");
+
+    // for (int i = 0; i < nRows; i++){
+        
+    //     printf ("%d\n", row_host[i]);       
+
+    // }
 
     checkCudaErrors(cudaMalloc((int **)&col, nz*sizeof(int)));
     checkCudaErrors(cudaMalloc((int **)&row, (nRows+1)*sizeof(int)));
@@ -238,17 +265,13 @@ int main(){
     checkCudaErrors (cudaMemcpy(col, col_host, nz*sizeof(int), cudaMemcpyHostToDevice ));
     checkCudaErrors (cudaMemcpy(val, val_host, nz*sizeof(double), cudaMemcpyHostToDevice ));
     checkCudaErrors (cudaMemcpy(row, row_host, (nRows+1)*sizeof(int), cudaMemcpyHostToDevice ));
-    checkCudaErrors (cudaMemcpy(d_X, X,(vecSize)*sizeof(double), cudaMemcpyHostToDevice ));
+    checkCudaErrors (cudaMemcpy(d_X, X,(rows*cols)*sizeof(double), cudaMemcpyHostToDevice ));
 
     cusparseHandle_t handle = 0;
     cusparseStatus_t cusparseStatus;
     cusparseStatus = cusparseCreate(&handle);
     cusparseMatDescr_t descr_coeff;
     cusparseMatDescr_t descr_coeff_2;
-
-    cublasHandle_t handleBlas = 0;
-    cublasStatus_t cublasStatus;
-    cublasStatus = cublasCreate(&handleBlas);
 
 
     const cusparseOperation_t trans_coeff  = CUSPARSE_OPERATION_NON_TRANSPOSE;
@@ -301,7 +324,9 @@ int main(){
     checkCudaErrors (cudaMemcpy(rowHostBSR, row_BSR, (mb+1)*sizeof(int), cudaMemcpyDeviceToHost ));
 
 
-
+cublasHandle_t handleBlas = 0;
+cublasStatus_t cublasStatus;
+cublasStatus = cublasCreate(&handleBlas);
 
 // checkCudaErrors(cublasStatus);
 
@@ -316,13 +341,6 @@ checkCudaErrors(cusparseDbsrmv(handle, dir_coeff, trans_coeff, mb, nb, nnzb, &al
        &bet, d_R));
 
 
-
-
- alph = 1;  
- /*r = b - r [Ax]*/  
- checkCudaErrors( cublasDaxpy( handleBlas, vecSize, 
-                            &alph,d_X, 1,d_R, 1));
-
 checkCudaErrors (cudaMemcpy(Y, d_R,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
 
 printf ("\n R matrix:\n");
@@ -333,176 +351,108 @@ for (int i = 0; i < vecSize; i++){
 }
 
 
+ alph = 1;  
+ /*r = b - r*/  
+ checkCudaErrors( cublasDaxpy( handleBlas, vecSize, 
+                            &alph,d_X, 1,d_R, 1));
+
+
+
 
 //2: Set p=r and \tilde{r}=r
-checkCudaErrors(cublasDcopy(handleBlas,(vecSize), d_R, 1, d_p, 1));
-checkCudaErrors(cublasDcopy(handleBlas, (vecSize), d_R, 1, d_rw,1));
-checkCudaErrors(cublasDnrm2(handleBlas,(rows*cols), d_R, 1, &residual1));
+// checkCudaErrors(cublasDcopy(handleBlas,(vecSize), d_R, 1, d_p, 1));
+// checkCudaErrors(cublasDcopy(handleBlas, (vecSize), d_R, 1, d_rw,1));
+//checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), d_R, 1, &residual1));
 
 
 
 printf (" Residual %f \n", residual1);
 //3: repeat until convergence (based on max. it. and relative residual)
-for (int i=0; i<maxit; i++){
-    rhop = rho; 
-    //Step 5.1 : Dot product (rw,r)
-    checkCudaErrors(cublasDdot ( handleBlas, vecSize, d_rw, 1, d_R, 1, &rho));
-    printf ("\n Dot Product %f \n", rho);
+// for (int i=0; i<maxit; i++){
+//     rhop = rho; 
+//     checkCudaErrors(cublasDdot ( handleBlas, vecSize, d_rw, 1, d_R, 1, &rho));
 
-    if (i > 0){
-        //5.2: \beta = (\rho_{i} / \rho_{i-1}) ( \alpha / \omega )
-        beta= (rho/rhop)*(alpha/omega);
-        printf ("\n Beta %f \n", beta);
+//     if (i > 0){
+//         //12: \beta = (\rho_{i} / \rho_{i-1}) ( \alpha / \omega )
+//         beta= (rho/rhop)*(alpha/omega);
+//         //13: p = r + \beta (p - \omega v)
+//         omega = -omega; 
+//         checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
+//                            &omega,d_V, 1,d_p, 1));
+//         omega = -omega;
 
-        //5.3: p = r + \beta (p - \omega v)
+//         checkCudaErrors(cublasDscal(handleBlas, vecSize, 
+//                             &beta,d_p, 1)); 
 
-        //-omega*v
-        omega = -omega; 
-        checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
-                           &omega,d_V, 1,d_p, 1));
-
-        //Reset omega
-        omega = -omega;
-
-
-        //beta * (p - omega*v)
-        checkCudaErrors(cublasDscal(handleBlas, vecSize, 
-                            &beta,d_p, 1)); 
-
-        // r + beta*(p-omega*v)
-        checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
-                    &alph,d_R, 1,d_p, 1)); 
-
-
-        checkCudaErrors (cudaMemcpy(Y, d_p,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
-
-        printf ("\n Updated P  matrix:\n");
-        for (int i = 0; i < vecSize; i++){
+//         checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
+//                     &alph,d_R, 1,d_p, 1)); 
+//     }
         
-            printf ("%f\n", Y[i]);       
+//         //v = A*p
+//         checkCudaErrors(cusparseDbsrmv(handle, dir_coeff, trans_coeff, mb, nb, nnzb, &alph,
+//             descr_coeff_2,val_BSR, row_BSR, col_BSR, dimBlock,d_p, 
+//             &bet, d_V));
 
-        }
-    }
-        
-        //Step 5.4 : v = A*p
-        checkCudaErrors(cusparseDbsrmv(handle, dir_coeff, trans_coeff, mb, nb, nnzb, &alph,
-            descr_coeff_2,val_BSR, row_BSR, col_BSR, dimBlock,d_p, 
-            &bet, d_V));
+//         // alpha = rho_i/(r_tilde * v_i)
 
+//         checkCudaErrors(cublasDotEx ( handleBlas, vecSize, d_rw, CUDA_R_64F,
+//                             1, d_V, CUDA_R_64F, 1, &alpha, CUDA_R_64F, CUDA_R_64F));
 
-        checkCudaErrors (cudaMemcpy(Y, d_V,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
-
-        printf ("\n V matrix:\n");
-        for (int i = 0; i < vecSize; i++){
-            
-            printf ("%f\n", Y[i]);       
-
-        }
-
-        //checkCudaErrors(cublasDotEx ( handleBlas, vecSize, d_rw, CUDA_R_64F,
-                            //1, d_V, CUDA_R_64F, 1, &alpha, CUDA_R_64F, CUDA_R_64F));
-
-        //Step 5.5 : alpha = rho_i/(r_tilde * v_i)
-        // alpha = (r_tilde * v_i)
-        checkCudaErrors(cublasDdot ( handleBlas, vecSize, d_rw, 1, d_V, 1, &alpha));
-
-        printf ("\n Alpha %f \n", alpha);
-
-        //alpha = rho/alpha
-        alpha = rho/alpha; 
-
-        printf ("\n Alpha 2 %f \n", alpha);
-
-        /*Step 5.6/ s = r - \alpha * v */
-        alpha = -alpha; 
-        checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
-                    &alpha,d_V, 1,d_R, 1));
-
-        checkCudaErrors (cudaMemcpy(Y, d_R,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
-
-        printf ("\n Updated R matrix:\n");
-        for (int i = 0; i < vecSize; i++){
-            
-            printf ("%f\n", Y[i]);       
-
-        }
-
-        //Reset alpha
-        alpha = -alpha; 
-
-        /*Step 5.5 Y = Y + p*alpha*/
-        checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
-            &alpha,d_p, 1,d_Y, 1));
-
-        /*Step 5.7 : Check the residual of s (r)*/
-        checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), d_R, 1, &residual2));
-
-        if (residual2/residual1 < 1E-3){
-            break;
-        }
-
-    
-    /*Step 5.9 T = A*s(r)*/
-    checkCudaErrors(cusparseDbsrmv(handle, dir_coeff, trans_coeff, mb, nb, nnzb, &alph,
-        descr_coeff_2,val_BSR, row_BSR, col_BSR, dimBlock,d_R, 
-        &bet, d_T));
+//         checkCudaErrors(cublasDdot ( handleBlas, vecSize, d_rw, 1, d_V, 1, &alpha));
 
 
-    checkCudaErrors (cudaMemcpy(Y, d_T,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
+//         alpha = rho/alpha; 
 
-    printf ("\n Updated T matrix:\n");
-    for (int i = 0; i < vecSize; i++){
-        
-        printf ("%f\n", Y[i]);       
+//         //18: s = r - \alpha q
 
-    }
+//         alpha = -alpha; 
+//         checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
+//                     &alpha,d_V, 1,d_R, 1));
 
-    /*Step 5.10 omega = (T.T)/(T.R)*/
-    checkCudaErrors(cublasDdot ( handleBlas, rows*cols, d_T, 1, d_T, 1, &temp));
-    checkCudaErrors(cublasDdot ( handleBlas, rows*cols, d_R, 1, d_T, 1, &omega));
+//         alpha = -alpha; 
 
-    printf ("\n Omega %f \n", omega);
-    omega = omega/temp; 
-    printf ("\n Omega 2%f \n", omega);
+//         checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
+//             &alpha,d_p, 1,d_Y, 1));
 
-    //Step 5.11 *x = h + omega *s*/  
+//         checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), d_R, 1, &residual2));
 
-    checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
-                &omega,d_R, 1,d_Y, 1));
+//         if (residual2/residual1 < 1E-3){
+//             break;
+//         }
 
 
-    /*Step 5.13 r = s - omega * t*/
+//     checkCudaErrors(cusparseDbsrmv(handle, dir_coeff, trans_coeff, mb, nb, nnzb, &alph,
+//         descr_coeff_2,val_BSR, row_BSR, col_BSR, dimBlock,d_R, 
+//         &bet, d_T));
 
-    omega = -omega; 
-    checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
-                &omega,d_T, 1,d_R, 1));
-    //Reset omega
-    omega = -omega; 
 
-    checkCudaErrors (cudaMemcpy(Y, d_R,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
+//     checkCudaErrors(cublasDdot ( handleBlas, vecSize, d_T, 1, d_T, 1, &temp));
+//     checkCudaErrors(cublasDdot ( handleBlas, vecSize, d_R, 1, d_T, 1, &rho));
 
-    printf ("\n Updated Final Residual matrix:\n");
-    for (int i = 0; i < vecSize; i++){
-        
-        printf ("%f\n", Y[i]);       
+//     omega = omega/temp; 
 
-    }
+//     /*x = h + omega *s*/
 
-    /*Step 5.12 Check residual of R*/
-    checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), d_R, 1, &residual2));
+//     checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
+//                 &omega,d_R, 1,d_Y, 1));
 
-    if (residual2/residual1 < 1E-3){
-        break;
-    }
-}
 
-checkCudaErrors (cudaMemcpy(Y, d_Y,  (vecSize)*sizeof(double), cudaMemcpyDeviceToHost ));
-printf ("\n Final Solution:\n");
-for (int i = 0; i < vecSize; i++){
-    
-    printf ("%f\n", Y[i]);       
+//     /*r = s - omega * t*/
 
-}
+//     omega = -omega; 
+//     checkCudaErrors(cublasDaxpy(handleBlas, vecSize, 
+//                 &omega,d_T, 1,d_R, 1));
+
+//     omega = -omega; 
+
+//     /*Check for convergence*/
+//     checkCudaErrors(cublasDnrm2(handleBlas,(vecSize), d_R, 1, &residual2));
+
+//     if (residual2/residual1 < 1E-3){
+//         break;
+//     }
+// }
+
 
 
 

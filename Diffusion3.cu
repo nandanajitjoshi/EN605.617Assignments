@@ -6,8 +6,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
-
 
 /* Using updated (v2) interfaces to cublas */
 #include <cuda_runtime.h>
@@ -19,7 +17,6 @@
 #include "helper_cuda.h"       // helper function CUDA error checking and initialization
 /*Initialize CSR*/
 #include "cusparse_bcgstab_4.h"
-#include "PostPr.h"
 struct vertex {
     char VType; 
     char BSide; 
@@ -391,7 +388,7 @@ float callDiff (int timeStep, int Nx, int Ny){
 /*Ver 2 - Added 2*/
 __global__
 void genXCoeffs(double *low, double *high, double*diag, const vertex* Domain, 
-     int rows, double mu, double rho, double delT, char varID){
+     int rows, double mu, double rho, double delT){
 
     int thread_idx = blockIdx.x * blockDim.x + threadIdx.x;
     vertex thisV = Domain[thread_idx]; 
@@ -425,12 +422,6 @@ void genXCoeffs(double *low, double *high, double*diag, const vertex* Domain,
                             high [thread_idx] =  - 1*mu/rho * (dely/delx)/(dely*delx)*(delT/2);
                             diag [thread_idx] =  1 + 1 * mu/rho * (dely/delx)/(dely*delx)* (delT/2);
 
-                            
-                            if (varID == 'U'){
-                                high [thread_idx] = 0;
-                                diag [thread_idx] = 1;
-                            }
-
                         }
                     break;
 
@@ -447,11 +438,6 @@ void genXCoeffs(double *low, double *high, double*diag, const vertex* Domain,
                             high [thread_idx] =  0;
                             low [thread_idx] =  - 1*mu/rho * (dely/delx)/(dely*delx) * (delT/2);
                             diag [thread_idx] =  1 + 1 * mu/rho * (dely/delx)/(dely*delx) * (delT/2);
-
-                            if (varID == 'U'){
-                                low [thread_idx] = 0;
-                                diag [thread_idx] = 1;
-                            }
 
                         }
 
@@ -626,12 +612,12 @@ void genYCoeffs(double *low, double *high, double*diag, const vertex* Domain,
 
 void genYWithTrans(double *low, double *high, double*diag, const vertex* Domain, 
      int rows, double mu, double rho, double delT, int nBlocks, int blockWidth,
-     int Ny, int Nx, cublasHandle_t handleBlas, char varID){
+     int Ny, int Nx, cublasHandle_t handleBlas){
 
         double* temp; 
         checkCudaErrors(cudaMalloc((double **)&temp, rows *sizeof(double)));
 
-        genYCoeffs <<<nBlocks,blockWidth>>> (low,high,diag,Domain, rows, mu, rho, delT, varID); 
+        genYCoeffs <<<nBlocks,blockWidth>>> (low,high,diag,Domain, rows, mu, rho, delT, 'V'); 
 
         XtoY <<<nBlocks,blockWidth>>> (low,Ny, Nx, temp); 
         checkCudaErrors(cublasDcopy(handleBlas,(rows), temp, 1, low, 1));
@@ -846,7 +832,7 @@ void calcD(const double *vec, double*H,  const vertex* Domain, int rows, int Nx,
 
 __global__
 void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
-    double y; 
+
     int rows = Ny*Nx; 
     int i = blockIdx.x * blockDim.x + threadIdx.x; 
 
@@ -855,8 +841,8 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /* Top left corner*/
             Domain[i]. VType = '2';
             Domain[i].BSide = 'W';
-            Domain[i]. dely = (double)Ly/(2*(Ny-1));
-            Domain[i].delx = (double)Lx/(2*(Nx-1));
+            Domain[i]. dely = (double)Ly/(2*Ny);
+            Domain[i].delx = (double)Lx/(2*Nx);
             Domain[i].BType = '0';
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
@@ -866,10 +852,10 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Top Right Corner*/
             Domain[i]. VType = '2';
             Domain[i].BSide = 'D';
-            Domain[i]. dely = (double)Ly/(2*(Ny-1));
-            Domain[i].delx = (double)Lx/(2*(Nx-1));
+            Domain[i]. dely = (double)Ly/(2*Ny);
+            Domain[i].delx = (double)Lx/(2*Nx);
             Domain[i].BType = '0';
-            Domain[i].UValue = U0;
+            Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].PValue = 0;
 
@@ -877,8 +863,8 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Bottom Left Corner*/
             Domain[i]. VType = '2';
             Domain[i].BSide = 'Z';
-            Domain[i]. dely = (double)Ly/(2*(Ny-1));
-            Domain[i].delx = (double)Lx/(2*(Nx-1));
+            Domain[i]. dely = (double)Ly/(2*Ny);
+            Domain[i].delx = (double)Lx/(2*Nx);
             Domain[i].BType = '0';
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
@@ -888,10 +874,10 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Bottom Right Corner*/
             Domain[i]. VType = '2';
             Domain[i].BSide = 'X';
-            Domain[i]. dely = (double)Ly/(2*(Ny-1));
-            Domain[i].delx = (double)Lx/(2*(Nx-1));
+            Domain[i]. dely = (double)Ly/(2*Ny);
+            Domain[i].delx = (double)Lx/(2*Nx);
             Domain[i].BType = '0';
-            Domain[i].UValue = U0;
+            Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].PValue = 0;
 
@@ -899,8 +885,8 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Top Edge*/
             Domain[i]. VType = '1';
             Domain[i].BSide = 'T';
-            Domain[i]. dely = (double)Ly/(2*(Ny-1));
-            Domain[i].delx = (double)Lx/(Nx-1);
+            Domain[i]. dely = (double)Ly/(2*Ny);
+            Domain[i].delx = (double)Lx/Nx;
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '1';
@@ -910,10 +896,9 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Left Edge*/
             Domain[i]. VType = '1';
             Domain[i].BSide = 'L';
-            Domain[i]. dely = (double)Ly/(Ny-1);
-            Domain[i].delx = (double) Lx/(2*(Nx-1));
-            y = Ly - (i/Nx)* (double)Ly/(Ny-1); 
-            Domain[i].UValue = U0 *6*(y-y*y) ;
+            Domain[i]. dely = (double)Ly/Ny;
+            Domain[i].delx = (double) Lx/(2*Nx);
+            Domain[i].UValue = U0;
             Domain[i].VValue = 0;
             Domain[i].BType = '0';
             Domain[i].PValue = 0;
@@ -922,9 +907,9 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Right Edge*/
             Domain[i]. VType = '1';
             Domain[i].BSide = 'R';
-            Domain[i]. dely = (double)Ly/(Ny-1);
-            Domain[i].delx = (double)Lx/(2*(Nx-1));
-            Domain[i].UValue = U0;
+            Domain[i]. dely = (double)Ly/Ny;
+            Domain[i].delx = (double)Lx/(2*Nx);
+            Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '0';
             Domain[i].PValue = 0;
@@ -933,8 +918,8 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Bottom Edge*/
             Domain[i]. VType = '1';
             Domain[i].BSide = 'B';
-            Domain[i]. dely = (double)Ly/(2*(Ny-1));
-            Domain[i].delx = (double)Lx/(Nx-1);
+            Domain[i]. dely = (double)Ly/(2*Ny);
+            Domain[i].delx = (double)Lx/Nx;
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '1';
@@ -944,8 +929,8 @@ void Mesh (double Lx, double Ly, int Nx,int Ny, vertex* Domain){
             /*Internal Points*/
             Domain[i]. VType = '0';
             Domain[i].BSide = '0';
-            Domain[i].dely = (double)Ly/(Ny-1);
-            Domain[i].delx = (double)Lx/(Nx-1);
+            Domain[i].dely = (double)Ly/Ny;
+            Domain[i].delx = (double)Lx/Nx;
             Domain[i].UValue = 0;
             Domain[i].VValue = 0;
             Domain[i].BType = '0';
@@ -978,7 +963,7 @@ void updateRHS(cublasHandle_t handleBlas, double* H_u_n_1, double* H_v_n_1,
                            &alpha,H_u_n, 1,RHS_u_n, 1));
 
     checkCudaErrors( cublasDaxpy( handleBlas, rows, 
-                        &alpha,H_v_n, 1, RHS_v_n, 1));
+                        &alpha,H_v_n, 1,RHS_v_n, 1));
 
 
     alpha = 1; 
@@ -1491,41 +1476,34 @@ void velPressureCorrection (double*P, double* U, double* V,const vertex* Domain,
     }
 }
 
-
-float Solve (double Lx, double Ly, int Nx,int Ny, 
-            double mu, double rho, double delT, 
-            int nSteps, int nRecordAfter){
+void Solve (double Lx, double Ly, int Nx,int Ny){
 
     int rows  = Ny*Nx; 
-    int maxit = 50;
+    int maxit = 16;
     vertex* DomainHost = (vertex*) malloc (sizeof(vertex)*rows);
     vertex* Domain = NULL; 
-    double* Uxlow, * Uxhigh, * Uxdiag; 
-    double* Vxlow, *Vxhigh, *Vxdiag; 
-    double* Uylow, * Uyhigh, * Uydiag; 
-    double* Vylow, *Vyhigh, *Vydiag; 
+    double* Ulow, * Uhigh, * Udiag; 
+    double* Vlow, *Vhigh, *Vdiag; 
     double* U, *V, *P; 
     double* H_u_n_1, *H_v_n_1, *H_u_n, *H_v_n; 
     double* D_u_n, *D_v_n;
     double* RHS_u_n, *RHS_v_n;
     int* P_rowPtr, *P_colPtr;  
     double* P_val, *P_RHS; 
-
-    int nRecordedSteps = nSteps/nRecordAfter + 1; 
-      
   
 
-    //double* I = (double *)malloc(sizeof(double)*(rows));
-    //double *J = (double *)malloc(sizeof(double)*rows);
-    //double *val_host = (double *)malloc(sizeof(double) * rows );
-    double *U_Result= (double *)malloc(sizeof(double) * rows * nRecordedSteps );
-    double *V_Result= (double *)malloc(sizeof(double) * rows * nRecordedSteps );
-    //double *Soln = (double *)malloc(sizeof(double) * rows);
-    //double*temp = (double *)malloc(sizeof(double) * 5*rows);
-    //int* temp2 = (int*)malloc(sizeof(int) * 5*rows);
-    //int* temp3 = (int*)malloc(sizeof(int) * (rows+1));
+    double* I = (double *)malloc(sizeof(double)*(rows));
+    double *J = (double *)malloc(sizeof(double)*rows);
+    double *val_host = (double *)malloc(sizeof(double) * rows );
+    double *RHS = (double *)malloc(sizeof(double) * rows);
+    double *Soln = (double *)malloc(sizeof(double) * rows);
+    double*temp = (double *)malloc(sizeof(double) * 5*rows);
+    int* temp2 = (int*)malloc(sizeof(int) * 5*rows);
+    int* temp3 = (int*)malloc(sizeof(int) * (rows+1));
 
-
+    double mu = 1;
+    double rho = 1;
+    double delT =1;
 
     cublasHandle_t handleBlas = 0;
     cublasStatus_t cublasStatus;
@@ -1535,22 +1513,13 @@ float Solve (double Lx, double Ly, int Nx,int Ny,
 
     checkCudaErrors(cudaMalloc((vertex **)&Domain, rows *sizeof(vertex)));
 
-    checkCudaErrors(cudaMalloc((double **)&Uxlow, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Uxhigh, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Uxdiag, rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&Ulow, rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&Uhigh, rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&Udiag, rows *sizeof(double)));
 
-    
-    checkCudaErrors(cudaMalloc((double **)&Uylow, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Uyhigh, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Uydiag, rows *sizeof(double)));
-
-    checkCudaErrors(cudaMalloc((double **)&Vxlow, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Vxhigh, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Vxdiag, rows *sizeof(double)));
-
-    checkCudaErrors(cudaMalloc((double **)&Vylow, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Vyhigh, rows *sizeof(double)));
-    checkCudaErrors(cudaMalloc((double **)&Vydiag, rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&Vlow, rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&Vhigh, rows *sizeof(double)));
+    checkCudaErrors(cudaMalloc((double **)&Vdiag, rows *sizeof(double)));
 
     checkCudaErrors(cudaMalloc((double **)&U, rows *sizeof(double)));
     checkCudaErrors(cudaMalloc((double **)&V, rows *sizeof(double)));
@@ -1573,121 +1542,271 @@ float Solve (double Lx, double Ly, int Nx,int Ny,
     checkCudaErrors(cudaMalloc((double **)&P_val, 5*rows *sizeof(double)));
     checkCudaErrors(cudaMalloc((double **)&P_RHS, rows *sizeof(double)));
 
+
+
+
     int blockWidth = 128;
     int nBlocks = rows/blockWidth + 1; 
-
-
-    cudaEvent_t startTime, stopTime; 
-    float time; 
-    cudaEventCreate (&startTime);
-    cudaEventCreate (&stopTime);
-    cudaEventRecord (startTime, 0);
 
     Mesh <<<nBlocks,blockWidth>>> (Lx,Ly,Nx,Ny, Domain);
     
     getPCoeffs<<<nBlocks,blockWidth>>>(P_rowPtr, P_colPtr, P_val,
              Domain,  rows, Nx, Ny, rho, delT);
 
-    genXCoeffs <<<nBlocks,blockWidth>>> (Uxlow,Uxhigh,Uxdiag,Domain, rows, mu, rho, delT, 'U'); 
-    genXCoeffs <<<nBlocks,blockWidth>>> (Vxlow,Vxhigh,Vxdiag,Domain, rows, mu, rho, delT, 'V'); 
-    genYWithTrans (Uylow,Uyhigh,Uydiag,Domain, rows, mu, rho, delT, nBlocks, blockWidth,
-        Ny, Nx, handleBlas, 'U' ); 
-    genYWithTrans (Vylow,Vyhigh,Vydiag,Domain, rows, mu, rho, delT, nBlocks, blockWidth,
-        Ny, Nx, handleBlas, 'V' ); 
+    checkCudaErrors (cudaMemcpy( temp2, P_colPtr,5*(rows)*sizeof(int), 
+        cudaMemcpyDeviceToHost));
 
-    for (int t = 0; t<nSteps; t++){
+    checkCudaErrors (cudaMemcpy( temp3, P_rowPtr,(rows+1)*sizeof(int), 
+    cudaMemcpyDeviceToHost));
 
-        calcH <<<nBlocks,blockWidth>>> (U,V,U, H_u_n, Domain, rows, Nx);
-        calcH <<<nBlocks,blockWidth>>> (U,V,V, H_v_n, Domain, rows, Nx);
-        calcD <<<nBlocks,blockWidth>>> (U,D_u_n, Domain, rows, Nx, 'U', delT, mu,rho );
-        calcD <<<nBlocks,blockWidth>>> (V,D_v_n, Domain, rows, Nx, 'V', delT, mu, rho);
+    printf ("\n Col Pointer\n");
+    for (int i = 0; i < 5*rows; i++){
 
-        updateRHS (handleBlas, H_u_n_1,  H_v_n_1,
-        H_u_n,  H_v_n,  D_u_n, D_v_n, 
-        RHS_u_n, RHS_v_n, delT, mu, rho, 
-        rows); 
-
-
-
-        TriDiagSolve(Uxlow , Uxdiag, Uxhigh, RHS_u_n, rows);
-        //checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_u_n, 1, U, 1));
-        XtoY<<<nBlocks, blockWidth>>> ( RHS_u_n, Ny, Nx, U);
-        TriDiagSolve(Uylow , Uydiag, Uyhigh, U, rows);
-        YtoX<<<nBlocks, blockWidth>>> ( U, Ny, Nx, RHS_u_n);
-        checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_u_n, 1, U, 1));
-
-
-        TriDiagSolve(Vxlow , Vxdiag, Vxhigh, RHS_v_n, rows);
-        //checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_u_n, 1, U, 1));
-        XtoY<<<nBlocks, blockWidth>>> ( RHS_v_n, Ny, Nx, V);
-        TriDiagSolve(Vylow , Vydiag, Vyhigh, V, rows);
-        YtoX<<<nBlocks, blockWidth>>> ( V, Ny, Nx, RHS_v_n);
-        checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_v_n, 1, V, 1));
-
-
-        update_PRHS <<<nBlocks, blockWidth>>> ( P_RHS, U, V, Domain, rows, Nx, Ny,
-                 rho); 
-
-
-        LinearSolve( P_rowPtr, P_colPtr, P_val, 
-                    P, P_RHS,                   
-                    rows, 5*rows, maxit );
-
-
-        velPressureCorrection <<<nBlocks, blockWidth>>>(P, U, V, Domain, 
-            rows,  Nx, Ny, rho,  delT ); 
-
-        checkCudaErrors(cublasDcopy(handleBlas,(rows), H_u_n, 1, H_u_n_1, 1));
-        checkCudaErrors(cublasDcopy(handleBlas,(rows), H_v_n, 1, H_v_n_1, 1));
-        checkCudaErrors(cudaMemset(RHS_u_n, 0, rows*sizeof(double)));
-        checkCudaErrors(cudaMemset(RHS_v_n, 0, rows*sizeof(double)));
-
-        if (t%nRecordAfter ==0){
-        
-
-            checkCudaErrors (cudaMemcpy( &U_Result[rows * (int)t/nRecordAfter], U,(rows)*sizeof(double), 
-                cudaMemcpyDeviceToHost));
-
-            checkCudaErrors (cudaMemcpy( &V_Result[rows * (int)t/nRecordAfter], V,(rows)*sizeof(double), 
-                cudaMemcpyDeviceToHost));
-
-            
-        }
-
-        // if (t %10 ==0){
-
-        //     printf ("\n Pressure Corrected V\n");
-
-        //     for (int i = 0; i < rows; i++){
-
-        //         printf("%f\n", RHS[i]);
-        //     }
-        // }
+        printf("%d\n", temp2[i]);
     }
 
-    // cudaEventRecord (stopTime, 0); 
-    // cudaEventSynchronize (stopTime);
-    // cudaEventElapsedTime (&time, startTime, stopTime);
-    // cudaEventDestroy (startTime);
-    // cudaEventDestroy (stopTime); 
+    printf ("\n Row Pointer\n");
+    for (int i = 0; i < rows+1; i++){
+
+        printf("%d\n", temp3[i]);
+    }
+
+    checkCudaErrors (cudaMemcpy( temp, P_val,5*(rows)*sizeof(double), 
+    cudaMemcpyDeviceToHost));
+
+    printf ("\n Val Pointer\n");
+    for (int i = 0; i < 5*rows; i++){
+
+        printf("%f\n", temp[i]);
+    }
 
 
 
-    // printf ("\n Pressure Corrected V\n");
+    genXCoeffs <<<nBlocks,blockWidth>>> (Ulow,Uhigh,Udiag,Domain, rows, mu, rho, delT); 
 
-    // for (int i = 0; i < 3*rows; i++){
+    genYWithTrans (Vlow,Vhigh,Vdiag,Domain, rows, mu, rho, delT, nBlocks, blockWidth,
+     Ny, Nx, handleBlas ); 
 
-    //     printf("%f\n", U_Result[i]);
+    genRHS( RHS, rows, Nx); 
+    checkCudaErrors (cudaMemcpy( U, RHS,(rows)*sizeof(double), 
+        cudaMemcpyHostToDevice));
+
+    printf ("\nInitial Mesh\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+
+
+    genRHS2( RHS, rows, Nx); 
+    checkCudaErrors (cudaMemcpy( V, RHS,(rows)*sizeof(double), 
+        cudaMemcpyHostToDevice));
+
+    printf ("\nInitial Mesh\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+
+    calcH <<<nBlocks,blockWidth>>> (U,V,U, H_u_n, Domain, rows, Nx);
+
+    // checkCudaErrors (cudaMemcpy( DomainHost, Domain,(rows)*sizeof(vertex), 
+    //         cudaMemcpyDeviceToHost));
+    // checkCudaErrors (cudaMemcpy( I, Ulow,(rows)*sizeof(double), 
+    //     cudaMemcpyDeviceToHost));
+    // checkCudaErrors (cudaMemcpy( J, Uhigh,(rows)*sizeof(double), 
+    //         cudaMemcpyDeviceToHost));
+    // checkCudaErrors (cudaMemcpy( val_host, Udiag,(rows)*sizeof(double), 
+    //         cudaMemcpyDeviceToHost));
+
+    checkCudaErrors (cudaMemcpy( RHS, H_u_n,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("\nInitial Mesh\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    calcH <<<nBlocks,blockWidth>>> (U,V,V, H_v_n, Domain, rows, Nx);
+
+    checkCudaErrors (cudaMemcpy( RHS, H_v_n,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("\nInitial Mesh\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+   calcD <<<nBlocks,blockWidth>>> (U,D_u_n, Domain, rows, Nx, 'U', delT, mu,
+   rho );
+
+    checkCudaErrors (cudaMemcpy( RHS, D_u_n,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("\nInitial Mesh\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    calcD <<<nBlocks,blockWidth>>> (V,D_v_n, Domain, rows, Nx, 'V', delT, mu, rho);
+
+    checkCudaErrors (cudaMemcpy( RHS, D_v_n,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("\nInitial Mesh\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    updateRHS (handleBlas, H_u_n_1,  H_v_n_1,
+      H_u_n,  H_v_n,  D_u_n, D_v_n, 
+      RHS_u_n, RHS_v_n, delT, mu, rho, 
+      rows); 
+
+    checkCudaErrors (cudaMemcpy( RHS, RHS_v_n,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("\nRHS_v\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    TriDiagSolve(Ulow , Udiag, Uhigh, RHS_u_n, rows);
+
+    checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_u_n, 1, U, 1));
+
+
+    /* 3 - Transfer data from host to device*/
+    checkCudaErrors (cudaMemcpy(J, Uhigh,  rows *sizeof(double), 
+            cudaMemcpyDeviceToHost ));
+    checkCudaErrors (cudaMemcpy(val_host, Udiag, rows *sizeof(double), 
+            cudaMemcpyDeviceToHost ));
+    checkCudaErrors (cudaMemcpy(I, Ulow, (rows)*sizeof(double),
+             cudaMemcpyDeviceToHost ));
+    checkCudaErrors (cudaMemcpy( Soln, U,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("U: \n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", Soln[i]);
+    }
+
+    //printOutput (I, J, val_host, RHS,Soln, rows);
+
+    XtoY<<<nBlocks, blockWidth>>> ( RHS_v_n, Ny, Nx, V);
+
+    checkCudaErrors (cudaMemcpy( RHS, V,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+    
+    /*Need th re-center the coefficient matrices as well*/
+
+    TriDiagSolve(Vlow , Vdiag, Vhigh, V, rows);
+
+    checkCudaErrors (cudaMemcpy(J, Vhigh,  rows *sizeof(double), 
+            cudaMemcpyDeviceToHost ));
+    checkCudaErrors (cudaMemcpy(val_host, Vdiag, rows *sizeof(double), 
+            cudaMemcpyDeviceToHost ));
+    checkCudaErrors (cudaMemcpy(I, Vlow, (rows)*sizeof(double),
+             cudaMemcpyDeviceToHost ));
+    checkCudaErrors (cudaMemcpy( Soln, V,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printOutput (I, J, val_host, RHS,Soln, rows);
+
+    
+    YtoX<<<nBlocks, blockWidth>>> ( V, Ny, Nx, RHS_v_n);
+
+    checkCudaErrors(cublasDcopy(handleBlas,(rows), RHS_v_n, 1, V, 1));
+
+    checkCudaErrors (cudaMemcpy( RHS, V,(rows)*sizeof(double), 
+            cudaMemcpyDeviceToHost));
+
+    printf ("\n Final V\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+
+
+
+    update_PRHS <<<nBlocks, blockWidth>>> ( P_RHS, U, V, Domain, rows, Nx, Ny,
+                 rho); 
+
+    // PRHSTry<<<nBlocks, blockWidth>>> ( P_RHS, Nx, Ny); 
+
+
+
+    // checkCudaErrors (cudaMemcpy( RHS, RHS_v_n,(rows)*sizeof(double), 
+    //         cudaMemcpyDeviceToHost));
+
+    // printf ("\nInitial Mesh\n");
+    // for (int i = 0; i < rows; i++){
+
+    //     printf("%f\n", RHS[i]);
     // }
 
-    writeOutOutFile (U_Result, rows, nRecordedSteps, 'U'); 
-    writeOutOutFile (V_Result, rows, nRecordedSteps, 'V'); 
 
-    // printf("%d\n", nSteps/5); 
-    // printf("%d\n", nRecordedSteps); 
-    // printf("%d\n", sizeof (U_Result)/sizeof(double)); 
+    // printOutput (I,J,val_host, RHS, Soln, rows);
 
-    return time; 
+    // genYCoeffs <<<nBlocks,blockWidth>>> (Vlow,Vhigh,Vdiag,Domain, rows, mu, rho); 
+
+
+    
+    // checkCudaErrors (cudaMemcpy( I, Vlow,(rows)*sizeof(double), 
+    //     cudaMemcpyDeviceToHost));
+    // checkCudaErrors (cudaMemcpy( J, Vhigh,(rows)*sizeof(double), 
+    //         cudaMemcpyDeviceToHost));
+    // checkCudaErrors (cudaMemcpy( val_host, Vdiag,(rows)*sizeof(double), 
+    //         cudaMemcpyDeviceToHost));
+
+    // printOutput (I,J,val_host, RHS, Soln, rows);
+
+    checkCudaErrors (cudaMemcpy( RHS, P_RHS,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Final P RHS\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    LinearSolve( P_rowPtr, P_colPtr, P_val, 
+                  P, P_RHS,                   
+                  rows, 5*rows, maxit );
+
+
+
+    checkCudaErrors (cudaMemcpy( RHS, P,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Pressure \n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    velPressureCorrection <<<nBlocks, blockWidth>>>(P, U, V, Domain, 
+        rows,  Nx, Ny, rho,  delT ); 
+
+    checkCudaErrors (cudaMemcpy( RHS, V,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Pressure Corrected V\n");
+
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
 
 }
 
@@ -1703,24 +1822,12 @@ float Solve (double Lx, double Ly, int Nx,int Ny,
 
 int main(int argc, char** argv){
     float time; 
-    int Ny = 50;
-    int Nx = 50;
-    double mu = 1E3; 
-    double rho = 1;
-    double delT = 0.00001;
-    int nSteps = 201; 
-    int nRecordAfter = 5; 
+    int Ny = 5;
+    int Nx = 5;
 
-   clock_t start_t, end_t;
-   double total_t;
     if (argc >= 2) {
             Ny = atoi(argv[1]);
             Nx = atoi(argv[2]);
-            mu = atof(argv[3]); 
-            rho = atof(argv[4]);
-            delT = atof(argv[5]); 
-            nSteps = atoi(argv[6]); 
-            nRecordAfter = atoi(argv[7]); 
     }
 
     // validate command line arguments
@@ -1731,14 +1838,13 @@ int main(int argc, char** argv){
         printf("The total number of threads will be modified  to 3\n");
     }
 
-   start_t = clock(); 
-   time =  Solve(1,1,Nx,Ny, mu, rho, delT, nSteps, nRecordAfter);
-   end_t = clock(); 
-   total_t = (double)(end_t - start_t) / CLOCKS_PER_SEC;
+
+    Solve(1,2,Nx,Ny);
+
+    printf ("\n\nSolving  linear  equations using cuSparse library\n"); 
     //time = callDiff( 1,Nx, Ny);
     printf ("The time taken for linear solve is \n");
-    printf ("%3.1f mus\n", time );
-    printf("%f", total_t);
+    //printf ("%3.1f mus", time );
 
     // printf ("\n\nAdding two vectors using cuBlas library\n");
     // time = vectorAdd (rows);  

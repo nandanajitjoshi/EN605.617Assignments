@@ -1657,6 +1657,28 @@ void Solve (int Lx, int Ly, int Nx,int Ny){
         printf("%f\n", RHS[i]);
     }
 
+    velPressureCorrection <<<nBlocks, blockWidth>>>(P_RHS, U, V, Domain, 
+         rows,  Nx, Ny, rho,  delT ); 
+
+    checkCudaErrors (cudaMemcpy( RHS, U,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Pressure Corrected U\n");
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
+    checkCudaErrors (cudaMemcpy( RHS, V,(rows)*sizeof(double), 
+        cudaMemcpyDeviceToHost));
+
+    printf ("\n Pressure Corrected V\n");
+
+    for (int i = 0; i < rows; i++){
+
+        printf("%f\n", RHS[i]);
+    }
+
 
 }
 

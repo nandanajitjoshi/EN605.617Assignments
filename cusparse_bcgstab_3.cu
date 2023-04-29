@@ -436,7 +436,7 @@ int main(){
     int bufferSize;
     void *pBuffer;
     int nnzb = 0; 
-    int maxit = 8;
+    int maxit = 16;
 
     int *rowHostBSR, *colHostBSR;
     double *valHostBSR = NULL; 
@@ -513,7 +513,8 @@ int main(){
 
     pBuffer =  getBSRDims(handle, row, col, val, row_BSR, &nnzb,
                     rows, cols, dimBlock); 
-
+    printf("%d\n",nnzb);
+    printf("%d\n", nz);
 
     checkCudaErrors(cudaMalloc((void**)&col_BSR, sizeof(int)*(nnzb)));
     checkCudaErrors(cudaMalloc((void**)&val_BSR, sizeof(double)*(dimBlock*dimBlock)*(nnzb)));

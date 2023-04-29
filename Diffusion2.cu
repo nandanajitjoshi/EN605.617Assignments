@@ -945,6 +945,21 @@ void updateRHS(cublasHandle_t handleBlas, double* H_u_n_1, double* H_v_n_1,
     
 }
 
+/*Generates the coefficients of the pressure Poisson equation in CSR format*/
+/*The basic pressure Poisson equation follows the pattern - 
+*   [1 0 0 0.... 0 . . . .. . .]
+     .
+     .
+     .1 .. 1  -4 1 ..1 0..0
+     .
+     .
+     .0 ....0................1]
+
+
+ *Stencil is [1,1,-4,1,1] and the variables are [Ptop, Pleft, P, Pright and Pbtm]
+* Coeffieicnts are to be multiplied by the appropriate constsnat (Not done yet)
+*/
+
 __global__
 void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
                  const vertex* Domain, int rows, int Nx, int Ny,
@@ -964,6 +979,9 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
         switch (thisV.VType){
             case '0':
                 /*Interior vertices*/
+
+                /*Coeff  = [1,1,-4,1,1]*/
+                /*Variables = [Ptop, Pleft, P, Pright and Pbtm] */
                 P_colPtr[start] = thread_idx - Nx; 
                 P_colPtr[start+1] = thread_idx - 1; 
                 P_colPtr[start+2] = thread_idx ; 
@@ -971,16 +989,20 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
                 P_colPtr[start+4] = thread_idx+Nx ; 
 
 
-                P_val[start] = 1; 
-                P_val[start+1] = 1; 
+                P_val[start] = (delx/dely)*constTerm; 
+                P_val[start+1] = (dely/delx)*constTerm; 
                 P_val[start+2] = -4 ; 
-                P_val[start+3] = 1 ; 
-                P_val[start+4] = 1 ; 
+                P_val[start+3] = (dely/delx)*constTerm ; 
+                P_val[start+4] = (delx/dely)*constTerm;; 
                 break;
 
             case '1':
                 switch (thisV.BSide){
+                    
                     case 'B' :
+                    /*Bottom edge*/
+                    /*Coeff  = [0,2,1,-4,1]*/
+                    /*Var = [N/A, Ptop, Pleft, P, Pright]*/
                         P_colPtr[start] = thread_idx - (Ny-1)*Nx ; 
                         P_colPtr[start+1] = thread_idx - Nx; 
                         P_colPtr[start+2] = thread_idx - 1; 
@@ -989,14 +1011,17 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
                        
 
                         P_val[start] = 0 ; 
-                        P_val[start+1] = 2; 
-                        P_val[start+2] = 1; 
-                        P_val[start+3] = -4 ; 
-                        P_val[start+4] = 1 ; 
+                        P_val[start+1] = 2 * (delx/(2*dely))*constTerm; 
+                        P_val[start+2] = (dely/delx)*constTerm; 
+                        P_val[start+3] = -constTerm * (2*dely/delx + 2*delx/(2*dely)) ; 
+                        P_val[start+4] = (dely/delx)*constTerm ; 
                        
                     break;  
 
                     case 'T' :
+                    /*Top edge*/
+                    /*Coeff  = [1,-4,1,2,0]*/
+                    /*Var = [Pleft, P, Pright, Pbtm, N/A]*/
                         P_colPtr[start] = thread_idx - 1; 
                         P_colPtr[start+1] = thread_idx; 
                         P_colPtr[start+2] = thread_idx + 1; 
@@ -1004,15 +1029,16 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
                         P_colPtr[start+4] = thread_idx+Nx*(Ny-1) ; 
                        
 
-                        P_val[start] = 1 ; 
-                        P_val[start+1] = -4; 
-                        P_val[start+2] = 1; 
-                        P_val[start+3] = 2 ; 
+                        P_val[start] = (dely/delx)*constTerm ; 
+                        P_val[start+1] = -constTerm * (2*dely/delx + 2*delx/(2*dely)); 
+                        P_val[start+2] = (dely/delx)*constTerm; 
+                        P_val[start+3] = 2 * (delx/(2*dely))*constTerm;
                         P_val[start+4] = 0 ; 
                        
                     break;
 
                     case 'L' :
+                    /*Left Edge*/
                         P_colPtr[start] = thread_idx - Nx; 
                         P_colPtr[start+1] = thread_idx; 
                         P_colPtr[start+2] = thread_idx + 1; 
@@ -1020,15 +1046,17 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
                         P_colPtr[start+4] = thread_idx+Nx ; 
                        
 
-                        P_val[start] = 1 ; 
-                        P_val[start+1] = -4; 
-                        P_val[start+2] = 2; 
+                        P_val[start] = (delx/(dely))*constTerm; 
+                        P_val[start+1] =  -constTerm * (2*delx/dely + 2*dely/(2*delx)); 
+                        P_val[start+2] = 2*(dely/(2*delx))*constTerm; 
                         P_val[start+3] = 0 ; 
-                        P_val[start+4] = 1 ; 
+                        P_val[start+4] = (delx/(dely))*constTerm;  
                        
                     break;
 
                     case 'R' :
+                    /*Right edge*/
+                    /*Outlet - Values are hard-coded to 0 for convergence*/
                         P_colPtr[start] = thread_idx - Nx; 
                         P_colPtr[start+1] = thread_idx-Nx+1; 
                         P_colPtr[start+2] = thread_idx - 1; 
@@ -1064,10 +1092,10 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
                     P_colPtr[start+4] = thread_idx+Nx*(Ny-1); 
 
 
-                    P_val[start] = -4 ; 
-                    P_val[start+1] = 2; 
+                    P_val[start] = -constTerm * (2*delx/(2*dely) + 2*dely/(2*delx));  
+                    P_val[start+1] = 2 * (dely/(2*delx))*constTerm; 
                     P_val[start+2] = 0; 
-                    P_val[start+3] = 2 ; 
+                    P_val[start+3] = 2 * (delx/(2*dely))*constTerm ; 
                     P_val[start+4] = 0 ; 
                     break;
 
@@ -1081,9 +1109,9 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
 
 
                     P_val[start] = 0 ; 
-                    P_val[start+1] = 2; 
-                    P_val[start+2] = -4; 
-                    P_val[start+3] = 2 ; 
+                    P_val[start+1] = 2 * (dely/(2*delx))*constTerm; 
+                    P_val[start+2] = -constTerm * (2*delx/(2*dely) + 2*dely/(2*delx));  
+                    P_val[start+3] = 2 * (delx/(2*dely))*constTerm ; 
                     P_val[start+4] = 0 ; 
                     break; 
 
@@ -1098,9 +1126,9 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
 
 
                     P_val[start] = 0 ; 
-                    P_val[start+1] = 2; 
-                    P_val[start+2] = -4; 
-                    P_val[start+3] = 2 ; 
+                    P_val[start+1] = 2 * (delx/(2*dely))*constTerm; 
+                    P_val[start+2] = -constTerm * (2*delx/(2*dely) + 2*dely/(2*delx));  
+                    P_val[start+3] = 2 * (dely/(2*delx))*constTerm ; 
                     P_val[start+4] = 0 ; 
                     break;
                     case 'X':
@@ -1114,169 +1142,17 @@ void getPCoeffs(int* P_rowPtr, int* P_colPtr, double* P_val,
 
 
                     P_val[start] = 0 ; 
-                    P_val[start+1] = 2; 
+                    P_val[start+1] = 2 * (delx/(2*dely))*constTerm; 
                     P_val[start+2] = 0; 
-                    P_val[start+3] = 2 ; 
-                    P_val[start+4] = -4 ; 
+                    P_val[start+3] = 2 * (dely/(2*delx))*constTerm ; 
+                    P_val[start+4] = -constTerm * (2*delx/(2*dely) + 2*dely/(2*delx));   
                     break; 
                 }
 
         }
 
+        /*Increment row pointer by 5, as each element has stencil of 5*/
         P_rowPtr[thread_idx + 1] = thread_idx*5 + 5;
-    }
-
-}
-
-__global__
-void update_PRHS(double* P_RHS, double* U, double* V,
-                 const vertex* Domain, int rows, int Nx, int Ny,
-                 double rho){
-
-
-
-    int thread_idx = blockIdx.x * blockDim.x + threadIdx.x; 
-    vertex thisV = Domain[thread_idx]; 
-    double delx = thisV.delx;
-    double dely = thisV.dely; 
-
-    double rightV, leftV, topV, btmV; 
-
-
-    if (thread_idx < rows){
-
-        switch (thisV.VType){
-            case '0':
-                /*Interior vertices*/
-            rightV = U[thread_idx+1];
-            leftV = U[thread_idx-1];
-            topV = V[thread_idx-Nx]; //Note that V vertex has been rotated in row-major direction
-            btmV = V[thread_idx+Nx];
-
-            P_RHS[thread_idx] = (rightV - leftV)/(2*delx) + (topV - btmV)/(2*dely);
-            break;
-
-            case '1':
-                switch (thisV.BSide){
-                    case 'B' :
-                        rightV = U[thread_idx+1];
-                        leftV = U[thread_idx-1];
-
-                        if ((thisV.BType == '0') || (thisV.BType == '2')){
-                        /*Dirichlet Condition*/
-                        topV = V[thread_idx-Nx];                       
-                        btmV =  2*thisV.VValue - topV;   
-                    } else {
-                        topV = 0;                       
-                        btmV =  0;  
-                    }
-
-                    P_RHS[thread_idx] = (rightV - leftV)/(2*delx) + (topV - btmV)/(4*dely);                       
-                    break;  
-
-                    case 'T' :
-                        /*Top Boundary*/
-                        rightV = U[thread_idx+1];
-                        leftV = U[thread_idx-1];
-
-                        if ((thisV.BType == '0') || (thisV.BType == '2')){
-                        /*Dirichlet Condition*/
-                        btmV = V[thread_idx+Nx];                       
-                        topV =  2*thisV.VValue - btmV; 
-                        } else {
-                        topV = 0;                       
-                        btmV =  0;  
-                    }
-
-                    P_RHS[thread_idx] = (rightV - leftV)/(2*delx) + (topV - btmV)/(4*dely);                       
-                    break;  
-
-                    case 'L' :
-
-                        topV = V[thread_idx-Nx];
-                        btmV = V[thread_idx + Nx]; 
-
-                        if ((thisV.BType == '0') || (thisV.BType == '2')){
-                        /*Dirichlet Condition*/
-                        rightV = U[thread_idx+1];                       
-                        leftV =  2*thisV.UValue - rightV; 
-                        } else {
-                        rightV = 0;                       
-                        leftV =  0;  
-                        }
-                    
-                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(2*dely);                       
-                    break;  
-
-                    case 'R' :
-                        topV = V[thread_idx-Nx];
-                        btmV = V[thread_idx + Nx]; 
-
-                        if ((thisV.BType == '0') || (thisV.BType == '2')){
-                        /*Dirichlet Condition*/
-                        leftV = U[thread_idx-1];                       
-                        rightV =  2*thisV.UValue - leftV; 
-                        } else {
-                        rightV = 0;                       
-                        leftV =  0;  
-                        }
-                    
-                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(2*dely);    
-                       
-                    break;
-
-                }
-
-            case '2':
-                switch (thisV.BSide){       
-                    case 'W':
-                    /*Top left*/
-
-                    btmV = V[thread_idx + Nx]; 
-                    rightV = U[thread_idx + 1]; 
-                    topV = 2*thisV.VValue -  btmV; 
-                    leftV = 2*thisV.UValue -  rightV; 
-
-                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
-                    break;
-
-                    case 'D':
-                    /*Top right*/
-                    btmV = V[thread_idx + Nx]; 
-                    leftV = U[thread_idx - 1]; 
-                    topV = 2*thisV.VValue - btmV; 
-                    rightV = 2*thisV.UValue -  leftV; 
-
-                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
-                    break;
-
-                    case 'Z':
-                    /*Bottom left*/
-
-                    topV = V[thread_idx - Nx]; 
-                    rightV = U[thread_idx + 1]; 
-                    btmV = 2*thisV.VValue -  topV; 
-                    leftV = 2*thisV.UValue -  rightV; 
-
-                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
-                    break;
-
-                    case 'X':
-                    /*Bottom Right*/
-
-                    topV = V[thread_idx - Nx]; 
-                    leftV = U[thread_idx - 1]; 
-                    btmV = 2*thisV.VValue -  topV; 
-                    rightV = 2*thisV.UValue - leftV; 
-
-                    P_RHS[thread_idx] = (rightV - leftV)/(4*delx) + (topV - btmV)/(4*dely);    
-                    break;
- 
-                    break; 
-                }
-
-        }
-
     }
 
 }
